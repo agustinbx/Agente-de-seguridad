@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from db import init_db, insert_alert, list_alerts
+from db import get_related_alerts, init_db, insert_alert, list_alerts
+from enrichment import check_ip_reputation
 
 app = FastAPI(
     title="SOC Copilot API",
@@ -61,6 +62,24 @@ def get_alerts(limit: int = 50):
     """Devuelve las ultimas alertas guardadas, para poder verificar que
     el pipeline de ingesta esta funcionando."""
     return list_alerts(limit=limit)
+
+
+@app.get("/enrich/ip/{ip}")
+def enrich_ip(ip: str):
+    """Consulta la reputacion de una IP en AbuseIPDB (con cache de 24hs)."""
+    return check_ip_reputation(ip)
+
+
+@app.get("/alerts/related")
+def related_alerts(
+    user: str | None = None,
+    ip: str | None = None,
+    minutes: int = 60,
+    exclude_id: str | None = None,
+):
+    """Busca alertas del mismo usuario y/o IP dentro de una ventana de
+    tiempo. Es la 'tool' de correlacion que el agente LLM va a usar."""
+    return get_related_alerts(user=user, ip=ip, minutes=minutes, exclude_id=exclude_id)
 
 
 # Para correr localmente:

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Config / secrets
+.env
+
+# Datos locales (SQLite, estado del ingest)
+*.db
+last_timestamp.txt
+
+# Editores / OS
+.vscode/
+.idea/
+.DS_Store
