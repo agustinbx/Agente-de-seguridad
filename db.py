@@ -3,11 +3,13 @@ SOC Copilot - capa de base de datos
 Sprint 1: SQLite simple para guardar las alertas crudas que llegan de Wazuh.
 Sprint 2: sumamos el cache de enriquecimiento (reputacion de IP) y la
 busqueda de alertas relacionadas por usuario/IP.
-Mas adelante (Sprint 3) vamos a sumar la tabla `cases` para lo que produce
-el agente LLM.
+Sprint 3: sumamos la tabla `cases` (veredictos del agente LLM) y
+get_user_history, otra 'tool' que el agente puede llamar.
 """
 
+import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -50,6 +52,21 @@ def init_db():
                 abuse_score INTEGER,
                 country TEXT,
                 checked_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cases (
+                id TEXT PRIMARY KEY,
+                related_alert_ids TEXT,
+                severity TEXT,
+                title TEXT,
+                summary TEXT,
+                mitre_technique TEXT,
+                recommendation TEXT,
+                status TEXT DEFAULT 'new',
+                created_at TEXT
             )
             """
         )
@@ -152,3 +169,65 @@ def get_related_alerts(
         if now - ts <= window:
             results.append(record)
     return results
+
+
+def get_user_history(username: str) -> dict:
+    """Busca si este usuario ya tuvo alertas o casos antes, y que IPs suele
+    usar. Es otra 'tool' que el agente LLM puede llamar para saber si algo
+    es habitual para ese usuario o es la primera vez que se ve."""
+    with get_conn() as conn:
+        alert_rows = conn.execute(
+            "SELECT id, source_ip FROM raw_alerts WHERE user = ?",
+            (username,),
+        ).fetchall()
+        case_rows = conn.execute("SELECT related_alert_ids FROM cases").fetchall()
+
+    alert_ids = {row["id"] for row in alert_rows}
+    known_ips = sorted({row["source_ip"] for row in alert_rows if row["source_ip"]})
+
+    previous_cases = 0
+    for row in case_rows:
+        related_ids = json.loads(row["related_alert_ids"] or "[]")
+        if alert_ids.intersection(related_ids):
+            previous_cases += 1
+
+    return {
+        "user": username,
+        "total_alerts": len(alert_ids),
+        "known_ips": known_ips,
+        "previous_cases": previous_cases,
+    }
+
+
+def save_case(
+    related_alert_ids: list[str],
+    severity: str,
+    title: str,
+    summary: str,
+    recommendation: str,
+    mitre_technique: str | None = None,
+) -> str:
+    """Persiste el veredicto final del agente LLM. Devuelve el id del caso
+    creado. Esta es la 'tool' que el agente llama al final, una vez que ya
+    junto todo el contexto que necesitaba."""
+    case_id = str(uuid.uuid4())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO cases
+                (id, related_alert_ids, severity, title, summary,
+                 mitre_technique, recommendation, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?)
+            """,
+            (
+                case_id,
+                json.dumps(related_alert_ids),
+                severity,
+                title,
+                summary,
+                mitre_technique,
+                recommendation,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    return case_id
