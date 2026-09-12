@@ -53,6 +53,10 @@ Reglas:
    guardado - si no la llamas, tu analisis se pierde.
 6. Se conciso: el resumen y la recomendacion son para un analista humano que
    va a leer decenas de casos por dia.
+7. Todos los parametros de las tools son obligatorios. Si alguno no aplica,
+   mandalo igual como "" (string vacio) o [] (lista vacia) segun el tipo -
+   nunca lo omitas. Para get_related_alerts_tool, si no tenes una ventana de
+   tiempo especifica en mente, usa 60 minutos.
 """.strip()
 
 
@@ -96,17 +100,15 @@ def triage_alert(alert: dict) -> dict:
     alert_id = alert["id"]
     result: dict = {}
 
-    def get_related_alerts_tool(
-        user: str = "", ip: str = "", minutes: int = 60
-    ) -> list[dict]:
+    def get_related_alerts_tool(user: str, ip: str, minutes: int) -> list[dict]:
         """Busca otras alertas del mismo usuario y/o la misma IP origen
         dentro de una ventana de tiempo reciente, para detectar patrones
         (ej. varios intentos de login fallido seguidos).
 
         Args:
-            user: Nombre de usuario a buscar, o vacio si no aplica.
-            ip: IP origen a buscar, o vacio si no aplica.
-            minutes: Ventana de tiempo hacia atras, en minutos.
+            user: Nombre de usuario a buscar, o "" si no aplica.
+            ip: IP origen a buscar, o "" si no aplica.
+            minutes: Ventana de tiempo hacia atras, en minutos (ej. 60).
         """
         return get_related_alerts(
             user=user or None, ip=ip or None, minutes=minutes, exclude_id=alert_id
@@ -117,8 +119,8 @@ def triage_alert(alert: dict) -> dict:
         title: str,
         summary: str,
         recommendation: str,
-        mitre_technique: str = "",
-        related_alert_ids: list[str] = [],
+        mitre_technique: str,
+        related_alert_ids: list[str],
     ) -> dict:
         """Persiste el veredicto final del triage. Llamala una sola vez, al
         final, cuando ya tengas toda la informacion que necesitas.
@@ -129,9 +131,9 @@ def triage_alert(alert: dict) -> dict:
             summary: Explicacion en lenguaje natural de por que se eligio
                 esta severidad.
             recommendation: Proximos pasos sugeridos para el analista humano.
-            mitre_technique: Ej. "T1110 - Brute Force", o vacio si no aplica.
+            mitre_technique: Ej. "T1110 - Brute Force", o "" si no aplica.
             related_alert_ids: IDs de otras alertas relacionadas que hayas
-                encontrado con get_related_alerts_tool, si las hay.
+                encontrado con get_related_alerts_tool, o [] si no hay.
         """
         ids = set(related_alert_ids)
         ids.add(alert_id)
